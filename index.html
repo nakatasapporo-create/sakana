@@ -1,0 +1,424 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>文字ならべ - 水族館シリーズ</title>
+    <meta name="theme-color" content="#0369a1">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-title" content="文字ならべ">
+    <meta name="description" content="水族館のいきものの名前を並べる、楽しいカタカナゲーム">
+    <link rel="manifest" href="./manifest.webmanifest">
+    <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png">
+    <link rel="apple-touch-icon" href="./icons/icon-192.png">
+    <!-- Tailwind CSS -->
+    <script src="./vendor/tailwind.js"></script>
+    <!-- React & ReactDOM -->
+    <script src="./vendor/react.min.js"></script>
+    <script src="./vendor/react-dom.min.js"></script>
+    <!-- Babel -->
+    <script src="./vendor/babel.min.js"></script>
+    <!-- Google Fonts -->
+
+    <style>
+        body {
+            font-family: 'Hiragino Maru Gothic ProN', 'Yu Gothic', sans-serif;
+            /* 水族館をイメージした海の中のようなグラデーション背景 */
+            background: linear-gradient(180deg, #38bdf8 0%, #0369a1 100%);
+            touch-action: manipulation;
+            user-select: none;
+            -webkit-user-select: none;
+            margin: 0;
+            height: 100vh;
+        }
+
+        /* 揺れるアニメーション（不正解時） */
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            20% { transform: translateX(-10px); }
+            40% { transform: translateX(10px); }
+            60% { transform: translateX(-10px); }
+            80% { transform: translateX(10px); }
+        }
+        .animate-shake {
+            animation: shake 0.4s ease-in-out;
+        }
+
+        /* 正解時のマル表示アニメーション */
+        @keyframes pop {
+            0% { transform: scale(0.5); opacity: 0; }
+            70% { transform: scale(1.2); opacity: 1; }
+            100% { transform: scale(1); opacity: 1; }
+        }
+        .animate-pop {
+            animation: pop 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+        }
+    </style>
+</head>
+<body class="w-screen h-screen overflow-hidden flex justify-center items-center text-gray-800">
+    <div id="root" class="w-full h-full max-w-4xl mx-auto flex flex-col relative"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect } = React;
+
+        // --- オリジナルアイコン（SVG）の定義 ---
+        const IrukaIcon = () => (
+            <svg viewBox="0 0 100 100" className="w-full h-full p-2" style={{backgroundColor: '#bae6fd', borderRadius: '1.25rem'}}>
+                {/* 水面/波 */}
+                <path d="M 0 75 Q 25 65 50 75 T 100 75 L 100 100 L 0 100 Z" fill="#0ea5e9" opacity="0.4" />
+                {/* 尾びれ */}
+                <path d="M 80 55 C 90 40, 95 45, 90 55 C 95 65, 90 70, 80 55 Z" fill="#38bdf8" />
+                {/* 体 */}
+                <path d="M 20 55 C 30 25, 65 30, 80 45 C 90 55, 95 55, 85 65 C 70 65, 50 75, 20 60 Z" fill="#38bdf8" />
+                {/* くちばし */}
+                <path d="M 20 55 C 5 55, 5 65, 20 62 Z" fill="#38bdf8" />
+                {/* お腹 (白っぽい) */}
+                <path d="M 20 60 C 40 70, 65 65, 80 55 C 70 65, 50 75, 20 62 Z" fill="#f1f5f9" />
+                {/* 背びれ */}
+                <path d="M 45 35 C 45 15, 50 15, 55 20 C 55 30, 60 40, 50 42 Z" fill="#38bdf8" />
+                {/* 胸びれ */}
+                <path d="M 35 62 C 30 75, 45 80, 45 70 C 45 65, 40 60, 35 62 Z" fill="#0284c7" />
+                {/* 目 */}
+                <circle cx="25" cy="52" r="2.5" fill="#0f172a" />
+                <circle cx="24" cy="51" r="1" fill="#ffffff" />
+            </svg>
+        );
+
+        const KurageIcon = () => (
+            <svg viewBox="0 0 100 100" className="w-full h-full p-2" style={{backgroundColor: '#0284c7', borderRadius: '1.25rem'}}>
+                {/* 触手（細い） */}
+                <path d="M 40 55 Q 35 75 40 90 M 50 55 Q 45 75 50 90 M 60 55 Q 65 75 60 90" stroke="#bae6fd" strokeWidth="2" fill="none" opacity="0.6" />
+                {/* 触手（太い・フリル） */}
+                <path d="M 35 50 Q 30 60 40 70 Q 35 80 45 90 M 65 50 Q 70 60 60 70 Q 65 80 55 90" stroke="#7dd3fc" strokeWidth="4" fill="none" opacity="0.8" />
+                <path d="M 45 50 Q 40 60 50 70 Q 45 80 55 90 M 55 50 Q 60 60 50 70 Q 55 80 45 90" stroke="#7dd3fc" strokeWidth="4" fill="none" opacity="0.8" />
+                {/* 傘の中の模様 */}
+                <path d="M 35 45 Q 50 60 65 45" fill="none" stroke="#e0f2fe" strokeWidth="3" opacity="0.5" />
+                {/* 傘 */}
+                <path d="M 20 50 Q 20 20 50 20 Q 80 20 80 50 Q 65 45 50 50 Q 35 45 20 50 Z" fill="#38bdf8" opacity="0.7" />
+                <path d="M 25 45 Q 25 25 50 25 Q 75 25 75 45 Q 65 40 50 45 Q 35 40 25 45 Z" fill="#7dd3fc" opacity="0.8" />
+            </svg>
+        );
+
+        const RakkoIcon = () => (
+            <svg viewBox="0 0 100 100" className="w-full h-full p-2" style={{backgroundColor: '#bae6fd', borderRadius: '1.25rem'}}>
+                {/* 水面/波 */}
+                <path d="M 0 70 Q 25 60 50 70 T 100 70 L 100 100 L 0 100 Z" fill="#38bdf8" opacity="0.5" />
+                
+                {/* しっぽ */}
+                <path d="M 75 65 Q 90 70 85 80 Q 75 80 70 70" fill="#78350f" />
+                
+                {/* 体 */}
+                <ellipse cx="50" cy="60" rx="25" ry="18" fill="#92400e" transform="rotate(-15, 50, 60)" />
+                <ellipse cx="50" cy="58" rx="18" ry="12" fill="#d97706" transform="rotate(-15, 50, 58)" /> {/* おなか */}
+                
+                {/* 足 */}
+                <ellipse cx="70" cy="50" rx="6" ry="10" fill="#78350f" transform="rotate(30, 70, 50)" />
+                <ellipse cx="60" cy="75" rx="6" ry="10" fill="#78350f" transform="rotate(-45, 60, 75)" />
+                
+                {/* 貝殻 */}
+                <path d="M 45 55 Q 50 50 55 55 L 52 62 Z" fill="#fde047" stroke="#ca8a04" strokeWidth="1.5" strokeLinejoin="round" />
+                <path d="M 48 55 L 50 60 M 52 55 L 50 60" stroke="#ca8a04" strokeWidth="1" />
+                
+                {/* 手 */}
+                <circle cx="42" cy="58" r="4" fill="#78350f" />
+                <circle cx="56" cy="62" r="4" fill="#78350f" />
+                
+                {/* 顔 */}
+                <ellipse cx="30" cy="45" rx="14" ry="12" fill="#92400e" transform="rotate(-15, 30, 45)" />
+                <ellipse cx="28" cy="46" rx="10" ry="8" fill="#fef3c7" transform="rotate(-15, 28, 46)" />
+                
+                {/* 耳 */}
+                <circle cx="22" cy="35" r="4" fill="#78350f" />
+                <circle cx="40" cy="38" r="4" fill="#78350f" />
+                
+                {/* 目と鼻 */}
+                <circle cx="24" cy="44" r="2" fill="#000" />
+                <circle cx="34" cy="46" r="2" fill="#000" />
+                <ellipse cx="29" cy="48" rx="2.5" ry="1.5" fill="#000" />
+            </svg>
+        );
+
+        const ShachiIcon = () => (
+            <svg viewBox="0 0 100 100" className="w-full h-full p-2" style={{backgroundColor: '#bae6fd', borderRadius: '1.25rem'}}>
+                {/* 水面/波 */}
+                <path d="M 0 75 Q 25 65 50 75 T 100 75 L 100 100 L 0 100 Z" fill="#0ea5e9" opacity="0.4" />
+                {/* 尾びれ */}
+                <path d="M 80 55 C 90 40, 95 45, 90 55 C 95 65, 90 70, 80 55 Z" fill="#171717" />
+                {/* 体のベース (黒) - 丸みのある頭とずんぐりした体 */}
+                <path d="M 15 55 C 15 25, 60 25, 80 45 C 90 55, 95 55, 85 65 C 70 65, 50 75, 20 65 C 10 60, 10 55, 15 55 Z" fill="#171717" />
+                {/* お腹の白い模様 */}
+                <path d="M 15 60 C 30 70, 50 75, 75 60 C 85 55, 80 65, 70 65 C 50 75, 30 70, 15 63 Z" fill="#ffffff" />
+                {/* 体側面の白い模様 (お腹から尾びれに向かう模様) */}
+                <path d="M 50 70 C 60 55, 80 50, 75 60 C 70 65, 60 70, 50 70 Z" fill="#ffffff" />
+                {/* アイパッチ (目の後ろの白い模様) */}
+                <path d="M 25 45 C 35 40, 45 45, 40 50 C 35 55, 20 50, 25 45 Z" fill="#ffffff" />
+                {/* サドルパッチ (背びれの後ろのグレーの模様) */}
+                <path d="M 50 35 C 60 35, 65 45, 60 45 C 55 45, 45 40, 50 35 Z" fill="#64748b" opacity="0.9" />
+                {/* 背びれ (高くまっすぐな形) */}
+                <path d="M 42 32 C 48 10, 52 10, 52 15 C 52 25, 55 35, 50 42 Z" fill="#171717" />
+                {/* 胸びれ (大きくて丸い) */}
+                <path d="M 32 65 C 22 80, 35 90, 42 80 C 48 70, 42 65, 32 65 Z" fill="#171717" />
+                {/* 目 (小さく) */}
+                <circle cx="20" cy="55" r="1.5" fill="#ffffff" />
+                <circle cx="20" cy="55" r="0.8" fill="#171717" />
+            </svg>
+        );
+
+        const EiIcon = () => (
+            <svg viewBox="0 0 100 100" className="w-full h-full p-2" style={{backgroundColor: '#bae6fd', borderRadius: '1.25rem'}}>
+                {/* しっぽ */}
+                <path d="M 50 70 Q 55 90 45 95" fill="none" stroke="#475569" strokeWidth="4" strokeLinecap="round" />
+                {/* 体 */}
+                <path d="M 50 15 Q 85 30 90 50 Q 85 70 50 70 Q 15 70 10 50 Q 15 30 50 15 Z" fill="#64748b" />
+                <path d="M 50 20 Q 80 32 85 50 Q 80 65 50 65 Q 20 65 15 50 Q 20 32 50 20 Z" fill="#94a3b8" />
+                {/* 目 */}
+                <ellipse cx="40" cy="35" rx="3" ry="4" fill="#0f172a" transform="rotate(-20, 40, 35)" />
+                <ellipse cx="60" cy="35" rx="3" ry="4" fill="#0f172a" transform="rotate(20, 60, 35)" />
+                {/* 白目 */}
+                <circle cx="39" cy="34" r="1" fill="#ffffff" />
+                <circle cx="59" cy="34" r="1" fill="#ffffff" />
+            </svg>
+        );
+
+        // 問題データ（水族館シリーズ 10問 - カタカナとリアルな画像 or イラスト）
+        const AQUARIUM_QUESTIONS = [
+            { word: 'イルカ', customImage: <IrukaIcon /> },
+            { word: 'ペンギン', imgSrc: './assets/penguin.jpg' },
+            { word: 'ラッコ', customImage: <RakkoIcon /> },
+            { word: 'シャチ', customImage: <ShachiIcon /> },
+            { word: 'アザラシ', emoji: '🦭' },
+            { word: 'クラゲ', customImage: <KurageIcon /> },
+            { word: 'サメ', imgSrc: './assets/shark.jpg' },
+            { word: 'エイ', customImage: <EiIcon /> },
+            { word: 'ウミガメ', imgSrc: './assets/turtle.jpg' },
+            { word: 'クジラ', emoji: '🐋' }
+        ];
+
+        // 配列をシャッフルする関数
+        function shuffleArray(array) {
+            const newArray = [...array];
+            for (let i = newArray.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [newArray[i], newArray[j]] = [newArray[j], newArray[i]];
+            }
+            return newArray;
+        }
+
+        function App() {
+            const [currentIndex, setCurrentIndex] = useState(0);
+            const [slots, setSlots] = useState([]);
+            const [choices, setChoices] = useState([]);
+            const [isError, setIsError] = useState(false);
+            const [isCorrect, setIsCorrect] = useState(false);
+            const [isFinished, setIsFinished] = useState(false);
+
+            // 問題の初期化
+            const loadQuestion = (index) => {
+                if (index >= AQUARIUM_QUESTIONS.length) {
+                    setIsFinished(true);
+                    return;
+                }
+
+                const question = AQUARIUM_QUESTIONS[index];
+                const chars = question.word.split('');
+                
+                // 正解の文字数分の空スロットを作成
+                setSlots(new Array(chars.length).fill(null));
+
+                // 選択肢をシャッフルして作成
+                const shuffledChars = shuffleArray(chars);
+                const initialChoices = shuffledChars.map((char, i) => ({
+                    id: `choice-${i}`,
+                    char: char,
+                    used: false
+                }));
+                
+                // シャッフルした結果が偶然正解と同じ順番になってしまった場合は再シャッフル
+                if (initialChoices.map(c => c.char).join('') === question.word && chars.length > 1) {
+                     const temp = initialChoices[0];
+                     initialChoices[0] = initialChoices[initialChoices.length - 1];
+                     initialChoices[initialChoices.length - 1] = temp;
+                }
+
+                setChoices(initialChoices);
+                setIsError(false);
+                setIsCorrect(false);
+            };
+
+            // 初回マウント時に1問目を読み込む
+            useEffect(() => {
+                loadQuestion(0);
+            }, []);
+
+            // 選択肢の文字をタップしたときの処理
+            const handleChoiceClick = (choice) => {
+                if (choice.used || isCorrect || isError) return;
+
+                const firstEmptyIndex = slots.findIndex(slot => slot === null);
+                if (firstEmptyIndex !== -1) {
+                    const newSlots = [...slots];
+                    newSlots[firstEmptyIndex] = choice;
+                    setSlots(newSlots);
+
+                    const newChoices = choices.map(c => 
+                        c.id === choice.id ? { ...c, used: true } : c
+                    );
+                    setChoices(newChoices);
+                }
+            };
+
+            // スロット（配置済み）の文字をタップしたときの処理（元に戻す）
+            const handleSlotClick = (slot, index) => {
+                if (!slot || isCorrect || isError) return;
+
+                const newSlots = [...slots];
+                newSlots[index] = null;
+                setSlots(newSlots);
+
+                const newChoices = choices.map(c => 
+                    c.id === slot.id ? { ...c, used: false } : c
+                );
+                setChoices(newChoices);
+            };
+
+            // 全てのスロットが埋まったら正解判定を行う
+            useEffect(() => {
+                if (slots.length > 0 && slots.every(slot => slot !== null)) {
+                    const currentWord = slots.map(slot => slot.char).join('');
+                    const correctWord = AQUARIUM_QUESTIONS[currentIndex].word;
+
+                    if (currentWord === correctWord) {
+                        // 正解
+                        setIsCorrect(true);
+                        setTimeout(() => {
+                            setCurrentIndex(prev => prev + 1);
+                            loadQuestion(currentIndex + 1);
+                        }, 1500);
+                    } else {
+                        // 不正解
+                        setIsError(true);
+                        setTimeout(() => {
+                            setIsError(false);
+                            setSlots(new Array(AQUARIUM_QUESTIONS[currentIndex].word.length).fill(null));
+                            setChoices(choices.map(c => ({ ...c, used: false })));
+                        }, 800);
+                    }
+                }
+            }, [slots]);
+
+            const handleReset = () => {
+                setCurrentIndex(0);
+                setIsFinished(false);
+                loadQuestion(0);
+            };
+
+            if (isFinished) {
+                return (
+                    <div className="flex-1 flex flex-col items-center justify-center text-white">
+                        <div className="text-6xl mb-8">🎊</div>
+                        <h1 className="text-4xl font-bold mb-8 drop-shadow-md">ぜんもんクリア！</h1>
+                        <button 
+                            onClick={handleReset}
+                            className="bg-white text-blue-600 font-bold text-2xl py-4 px-8 rounded-full shadow-xl active:scale-95 transition-transform"
+                        >
+                            もういちどあそぶ
+                        </button>
+                    </div>
+                );
+            }
+
+            const currentQuestion = AQUARIUM_QUESTIONS[currentIndex];
+
+            return (
+                <div className="flex-1 flex flex-col pt-4 px-4 pb-12 relative">
+                    
+                    {/* ヘッダー領域 */}
+                    <div className="flex justify-between items-center w-full mb-6">
+                        <button 
+                            onClick={handleReset}
+                            className="w-12 h-12 bg-white/30 backdrop-blur-md rounded-full flex items-center justify-center text-white text-2xl font-bold shadow-sm active:scale-95"
+                        >
+                            ×
+                        </button>
+                        
+                        <div className="bg-white/30 backdrop-blur-md text-white font-bold px-4 py-2 rounded-xl text-xl shadow-sm">
+                            {currentIndex + 1} / {AQUARIUM_QUESTIONS.length}
+                        </div>
+                    </div>
+
+                    {/* メインの画像領域 */}
+                    <div className="flex justify-center mb-8 relative">
+                        <div className="w-64 h-64 sm:w-80 sm:h-80 bg-white rounded-3xl border-[6px] border-cyan-300 shadow-2xl relative overflow-hidden flex items-center justify-center text-8xl sm:text-[120px]">
+                            {/* リアルな写真 or イラストの表示 */}
+                            {currentQuestion?.imgSrc ? (
+                                <img 
+                                    src={currentQuestion.imgSrc} 
+                                    alt="水族館のいきもの" 
+                                    className="w-full h-full object-cover"
+                                />
+                            ) : currentQuestion?.customImage ? (
+                                currentQuestion.customImage
+                            ) : (
+                                <div className="w-full h-full flex items-center justify-center bg-blue-100 p-2">
+                                    <span>{currentQuestion?.emoji}</span>
+                                </div>
+                            )}
+                            
+                            {/* 正解時のマル表示 */}
+                            {isCorrect && (
+                                <div className="absolute inset-0 flex items-center justify-center animate-pop z-10 bg-white/20">
+                                    <div className="w-56 h-56 border-[24px] border-red-500 rounded-full opacity-90 drop-shadow-lg"></div>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+
+                    {/* 解答スロット（枠） */}
+                    <div className={`flex justify-center flex-wrap gap-2 sm:gap-3 mb-10 sm:mb-16 px-2 ${isError ? 'animate-shake' : ''}`}>
+                        {slots.map((slot, index) => (
+                            <div 
+                                key={`slot-${index}`}
+                                onClick={() => handleSlotClick(slot, index)}
+                                className={`w-16 h-16 sm:w-20 sm:h-20 lg:w-24 lg:h-24 rounded-xl border-4 flex items-center justify-center text-4xl sm:text-5xl lg:text-6xl cursor-pointer transition-colors
+                                    ${slot ? 'bg-white border-cyan-500 text-cyan-900 shadow-md' : 'bg-white/70 border-white/50 shadow-inner'}`}
+                            >
+                                {slot ? slot.char : ''}
+                            </div>
+                        ))}
+                    </div>
+
+                    {/* 選択肢の文字（カタカナ） */}
+                    <div className="flex justify-center gap-2 sm:gap-4 flex-wrap px-2">
+                        {choices.map((choice) => (
+                            <button
+                                key={choice.id}
+                                onClick={() => handleChoiceClick(choice)}
+                                className={`w-16 h-16 sm:w-20 sm:h-20 lg:w-24 lg:h-24 rounded-xl border-4 text-4xl sm:text-5xl lg:text-6xl font-bold transition-all duration-200
+                                    ${choice.used 
+                                        ? 'bg-transparent border-transparent text-transparent pointer-events-none' 
+                                        : 'bg-white border-cyan-500 text-cyan-900 shadow-[0_6px_0_#06b6d4] sm:shadow-[0_8px_0_#06b6d4] active:translate-y-2 active:shadow-none'}`}
+                            >
+                                {choice.char}
+                            </button>
+                        ))}
+                    </div>
+
+                </div>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+    <script>
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('./sw.js').catch(error => {
+            console.warn('オフライン機能を登録できませんでした:', error);
+          });
+        });
+      }
+    </script>
+</body>
+</html>
